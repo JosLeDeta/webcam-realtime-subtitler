@@ -1,6 +1,7 @@
 import pyaudio
 import numpy as np
 import hashlib
+import wave, struct
 
 def capture_audio_device(callback, clips_dict, device_index=1, rate=16000, chunk=1024):
     p = pyaudio.PyAudio()
@@ -18,7 +19,7 @@ def capture_audio_device(callback, clips_dict, device_index=1, rate=16000, chunk
         data = np.frombuffer(data, 'int16')
         callback(data, clips_dict)
 
-def in_silence(data, threshold=1000):
+def in_silence(data, threshold=2500):
     return np.max(data) < threshold
 
 def generate_silence_samples(data):
@@ -44,6 +45,13 @@ def get_start_end_points(silent_samples):
 def get_audio_signature(data):
     return hashlib.md5(''.join([str(n) for n in data[-100:]]).encode('utf8')).hexdigest()
 
+def save_wave(filename, data):
+    file = wave.open(filename, 'w')
+    file.setnchannels(1)
+    file.setsampwidth(2)
+    file.setframerate(16000)
+    for n in data:
+        file.writeframesraw(struct.pack('<h', n))
 
 if __name__ == '__main__':
     p = pyaudio.PyAudio()

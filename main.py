@@ -1,9 +1,10 @@
-import audio_utils
+import audio_utils, video_utils
 from multiprocessing import Process, Manager
 import matplotlib.pyplot as plt
 import torch
+import cv2
 
-chunk_size = 1024
+chunk_size = 1600 * 2 
 audio_samples = []
 silent_samples = []
 
@@ -24,7 +25,8 @@ def audio_capture_callback(data, clips_dict):
     for pstart, pend in silent_points:
         signature = audio_utils.get_audio_signature(audio_samples[pstart : pend])
         if signature not in clips_dict.keys():
-            clips_dict[signature] = audio_samples[pstart - 128 : pend + 128]
+            clips_dict[signature] = audio_samples[pstart - 512 : pend + 128]
+            # audio_utils.save_wave(signature +  '.wav', audio_samples[pstart - 128 : pend + 128])
         
         if pend <= chunk_size:
             del clips_dict[signature]
@@ -36,7 +38,7 @@ def audio_capture_callback(data, clips_dict):
     # axs[1].plot(silent_samples, c='blue', fillstyle='none', mfc=None)
     # plt.pause(0.01)
 
-def predict_subtitles(clips_dict, model_tuple):
+def predict_subtitles(clips_dict, model_tuple, subtitles_list):
     model, decoder, utils = model_tuple
     (read_batch, split_into_batches, read_audio, prepare_model_input) = utils
     clips_processed = []
@@ -48,9 +50,21 @@ def predict_subtitles(clips_dict, model_tuple):
                 for i in predicted:
                     text = decoder(i.cpu())
                     if len(text) > 1:
-                        print(text)
+                        subtitles_list.append(text)
         
+def webcam_handler(subtitles_list):
+    cap = cv2.VideoCapture(2)
+
+    text = ' '
+    while True:
+        rect, frame = cap.read()
+        if len(subtitles_list) > 0:
+            text = subtitles_list[0]
+            del subtitles_list[0]
         
+        frame = video_utils.PutText(frame, text)
+        cv2.imshow('video', frame)
+        cv2.waitKey(1)
 
 if __name__ == '__main__':
     model_tuple = torch.hub.load(
@@ -61,9 +75,12 @@ if __name__ == '__main__':
         force_reload=True,
         source='local'
     )
+    m = Manager()
+    clips_dict = m.dict()
+    subtitles_list = m.list()
 
-    clips_dict = Manager().dict()
-    audio_capture_process = Process(target=audio_utils.capture_audio_device, args=(audio_capture_callback, clips_dict))
+    audio_capture_process = Process(target=audio_utils.capture_audio_device, args=(audio_capture_callback, clips_dict), kwargs=({'chunk': chunk_size}))
     audio_capture_process.start()
-    subtitler_process = Process(target=predict_subtitles, args=(clips_dict, model_tuple))
+    subtitler_process = Process(target=predict_subtitles, args=(clips_dict, model_tuple, subtitles_list, ))
+    webcam_process = Process(target=webcam_handler, args=(subtitles_list, )).start()
     subtitler_process.run()
