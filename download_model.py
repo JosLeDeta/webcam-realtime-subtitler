@@ -8,6 +8,8 @@ def download_model(lang):
         if lang in data['stt_models'].keys():
             url = data['stt_models'][lang]['latest']['jit']
             r  = requests.get(url, allow_redirects=True, stream=True)
+            if not os.path.exists('snakers4_silero-models_master/model/'):
+                os.mkdir('snakers4_silero-models_master/model/')
             file_path = 'snakers4_silero-models_master/model/' + url.split('/')[-1]
             total_size_in_bytes= int(r.headers.get('content-length', 0))
             block_size = 1024
