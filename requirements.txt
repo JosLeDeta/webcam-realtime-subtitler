@@ -1,0 +1,6 @@
+pyaudio
+pyvirtualcam
+torch==1.9
+torchvision
+torchaudio
+omegaconf

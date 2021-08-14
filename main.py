@@ -1,8 +1,8 @@
-import audio_utils, video_utils
+import audio_utils, video_utils, download_model
 from multiprocessing import Process, Manager
 import matplotlib.pyplot as plt
-import torch
-import cv2
+import torch, cv2, argparse, pyvirtualcam
+import numpy as np
 
 chunk_size = 1600 * 2 
 audio_samples = []
@@ -52,35 +52,53 @@ def predict_subtitles(clips_dict, model_tuple, subtitles_list):
                     if len(text) > 1:
                         subtitles_list.append(text)
         
-def webcam_handler(subtitles_list):
-    cap = cv2.VideoCapture(2)
+def webcam_handler(subtitles_list, video_device=2):
+    cap = cv2.VideoCapture(video_device)
 
     text = ' '
-    while True:
-        rect, frame = cap.read()
-        if len(subtitles_list) > 0:
-            text = subtitles_list[0]
-            del subtitles_list[0]
-        
-        frame = video_utils.PutText(frame, text)
-        cv2.imshow('video', frame)
-        cv2.waitKey(1)
+    rect, frame = cap.read()
+    with pyvirtualcam.Camera(width=frame.shape[1], height=frame.shape[0], fps=30) as cam:
+        while True:
+            rect, frame = cap.read()
+            if len(subtitles_list) > 0:
+                text = subtitles_list[0]
+                del subtitles_list[0]
+            
+            frame = video_utils.PutText(frame, text)
+
+            cv2.imshow('video', frame)
+            cv2.waitKey(1)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            cam.send(frame)
+            cam.sleep_until_next_frame()
 
 if __name__ == '__main__':
-    model_tuple = torch.hub.load(
-        repo_or_dir='./snakers4_silero-models_master',
-        model='silero_stt',
-        language='es',
-        device='cpu',
-        force_reload=True,
-        source='local'
-    )
-    m = Manager()
-    clips_dict = m.dict()
-    subtitles_list = m.list()
+    parser = argparse.ArgumentParser()
 
-    audio_capture_process = Process(target=audio_utils.capture_audio_device, args=(audio_capture_callback, clips_dict), kwargs=({'chunk': chunk_size}))
-    audio_capture_process.start()
-    subtitler_process = Process(target=predict_subtitles, args=(clips_dict, model_tuple, subtitles_list, ))
-    webcam_process = Process(target=webcam_handler, args=(subtitles_list, )).start()
-    subtitler_process.run()
+    parser.add_argument('--lang', type=str, default='en', help='en, es, de')
+    parser.add_argument('--video-device', type=int, default=2, help='input video device index')
+    parser.add_argument('--audio-device', type=int, default=1, help='input audio device index')
+
+    args = parser.parse_args()
+
+    if download_model.model_downloaded(args.lang) ==  False:
+        download_model.download_model(args.lang)
+    
+    if download_model.model_downloaded(args.lang) == True:
+        model_tuple = torch.hub.load(
+            repo_or_dir='./snakers4_silero-models_master',
+            model='silero_stt',
+            language=args.lang,
+            device='cpu',
+            force_reload=True,
+            source='local'
+        )
+        m = Manager()
+        clips_dict = m.dict()
+        subtitles_list = m.list()
+
+        audio_capture_process = Process(target=audio_utils.capture_audio_device, args=(audio_capture_callback, clips_dict), kwargs=({'chunk': chunk_size, 'device_index': args.audio_device}))
+        audio_capture_process.start()
+        subtitler_process = Process(target=predict_subtitles, args=(clips_dict, model_tuple, subtitles_list, ))
+        webcam_process = Process(target=webcam_handler, args=(subtitles_list, ), kwargs=({'video_device': args.video_device})).start()
+        subtitler_process.run()
